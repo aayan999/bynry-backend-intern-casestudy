@@ -204,5 +204,107 @@ The requirements are intentionally incomplete. Here are questions I would ask to
 * **Auditing and Timestamps:** The `Inventory_Log` table provides a full audit trail of stock movements, which is critical for a system like this. The `created_at` and `updated_at` timestamps in all major tables are a best practice for debugging and data analysis.
 
 
+---
+
+## Part 3: API Implementation
+
+This section provides the implementation for the low-stock alerts endpoint, including the necessary assumptions, the code itself, and a discussion of how edge cases are handled.
+
+### 1. Assumptions Made
+
+To implement this feature, I've made the following assumptions based on the incomplete requirements:
+
+* **Database Access:** The code assumes it can query the database schema designed in Part 2 using an ORM like SQLAlchemy.
+* **Low Stock Threshold:** I assume a `low_stock_threshold` column of type `INTEGER` exists on the `Products` table to define the alert level for each product.
+* **Recent Sales Activity:** I am defining "recent sales activity" as any sale recorded within the **last 30 days**.
+* **Sales Data:** I assume the existence of a `Sales` table that records which products are sold, in what quantity, and on what date. A simplified version would look like this:
+    * `Sales` Table: `id`, `inventory_id`, `quantity_sold`, `sale_date`
+* **Stockout Calculation:** The `days_until_stockout` is a predictive metric. I will assume it's calculated based on the average daily sales over the last 30 days. If there is no sales history, this will be `null`.
+
+### 2. API Implementation
+
+Here is the Python/Flask implementation for the endpoint. The code is heavily commented to explain the logic and how edge cases are handled directly within it.
+
+```python
+from flask import jsonify
+from sqlalchemy import func, and_
+from datetime import datetime, timedelta
+
+# Assuming db models are defined for Company, Warehouse, Product, Inventory, Supplier, Sales
+# from .models import db, Company, Warehouse, Product, Inventory, Supplier, Sales
+
+@app.route('/api/companies/<int:company_id>/alerts/low-stock', methods=['GET'])
+def get_low_stock_alerts(company_id):
+    """
+    Generates a list of low-stock alerts for a given company.
+    """
+    # EDGE CASE HANDLING 1: Company not found
+    company = Company.query.get(company_id)
+    if not company:
+        return jsonify({"error": "Company not found"}), 404
+
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+
+    low_stock_items = db.session.query(
+        Product,
+        Inventory,
+        Warehouse,
+        Supplier
+    ).join(
+        Inventory, Product.id == Inventory.product_id
+    ).join(
+        Warehouse, Inventory.warehouse_id == Warehouse.id
+    ).join(
+        Supplier, Product.supplier_id == Supplier.id
+    ).filter(
+        Warehouse.company_id == company_id,
+        Inventory.quantity <= Product.low_stock_threshold
+    ).all()
+
+    alerts = []
+    # EDGE CASE HANDLING 2: No low-stock items found
+    # If `low_stock_items` is empty, this loop is skipped, and an empty list is returned.
+
+    for product, inventory, warehouse, supplier in low_stock_items:
+
+        recent_sales = db.session.query(
+            func.sum(Sales.quantity_sold)
+        ).filter(
+            Sales.inventory_id == inventory.id,
+            Sales.sale_date >= thirty_days_ago
+        ).scalar() or 0
+
+        # EDGE CASE HANDLING 3: No recent sales
+        # This 'if' statement skips products that don't have recent sales, per the business rule.
+        if recent_sales > 0:
+            days_until_stockout = None
+            avg_daily_sales = recent_sales / 30.0
+            
+            # EDGE CASE HANDLING 4: Prevents division-by-zero for stockout calculation
+            if avg_daily_sales > 0:
+                days_until_stockout = int(inventory.quantity / avg_daily_sales)
+
+            alert = {
+                "product_id": product.id,
+                "product_name": product.name,
+                "sku": product.sku,
+                "warehouse_id": warehouse.id,
+                "warehouse_name": warehouse.name,
+                "current_stock": inventory.quantity,
+                "threshold": product.low_stock_threshold,
+                "days_until_stockout": days_until_stockout,
+                "supplier": {
+                    "id": supplier.id,
+                    "name": supplier.name,
+                    "contact_email": supplier.contact_email
+                }
+            }
+            alerts.append(alert)
+
+    return jsonify({
+        "alerts": alerts,
+        "total_alerts": len(alerts)
+    })
+
 
 
