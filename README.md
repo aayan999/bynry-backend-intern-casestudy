@@ -10,8 +10,8 @@ My submission for the backend developer case study.
 
 1.  **Missing Error Handling:** The code directly accesses `data['name']` and other keys without checking if they exist. If a field is missing in the request, the application will crash with a `KeyError`.
 2.  **Not a Single Database Transaction:** There are two separate `db.session.commit()` calls. If the first commit succeeds but the second one fails, the database will be left in an inconsistent state with a product record that has no corresponding inventory.
-3.  **No Validation of Business Rules:** The code does not check if a product with the same SKU already exists before creating a new one. [cite_start]This violates the business rule that SKUs must be unique across the platform[cite: 36].
-4.  [cite_start]**No Handling of Optional Fields:** The case study mentions that some fields might be optional[cite: 37], but the code treats all fields as mandatory, making the endpoint inflexible.
+3. No Validation of Business Rules: The code does not check if a product with the same SKU already exists before creating a new one. This violates the business rule that SKUs must be unique across the platform[cite: 36].
+4. [cite_start]No Handling of Optional Fields: The case study mentions that some fields might be optional[cite: 37], but the code treats all fields as mandatory, making the endpoint inflexible.
 
 ### Corrected Code
 
@@ -77,3 +77,132 @@ def create_product():
         db.session.rollback()
         # It's good practice to log the error, e.g., app.logger.error(e)
         return jsonify({"error": "An unexpected error occurred."}), 500
+
+
+
+---
+
+## Part 2: Database Design
+
+This section outlines the proposed database schema, identifies missing requirements, and justifies the design choices.
+
+### 1. Database Schema Design
+
+#### `Companies` Table
+Stores information about the businesses using the software.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | A unique number to identify each company (Primary Key). |
+| `name` | `VARCHAR(255)` | The official name of the company. |
+| `contact_email`| `VARCHAR(255)` | The main email address for communication. Must be unique. |
+| `created_at` | `TIMESTAMP` | The date and time when the company was added. |
+| `updated_at` | `TIMESTAMP` | The date and time when the company's record was last updated. |
+
+<br>
+
+#### `Warehouses` Table
+Each warehouse must be associated with a company.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | A unique number to identify each warehouse (Primary Key). |
+| `company_id` | `INTEGER` | Links this warehouse to a specific company (Foreign Key). |
+| `name` | `VARCHAR(255)` | The name of the warehouse (e.g., "Main Warehouse"). |
+| `location` | `TEXT` | The physical address of the warehouse. |
+| `created_at` | `TIMESTAMP` | The date and time when the warehouse was added. |
+| `updated_at` | `TIMESTAMP` | The date and time when the warehouse record was last updated. |
+
+<br>
+
+#### `Suppliers` Table
+Stores information about product suppliers.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | A unique number to identify each supplier (Primary Key). |
+| `name` | `VARCHAR(255)` | The name of the supplier. |
+| `contact_email`| `VARCHAR(255)` | The supplier's contact email for placing orders. |
+| `contact_phone`| `VARCHAR(20)` | The supplier's contact phone number. |
+| `created_at` | `TIMESTAMP` | The date and time when the supplier was added. |
+| `updated_at` | `TIMESTAMP` | The date and time when the supplier record was last updated. |
+
+<br>
+
+#### `Products` Table
+Stores details for each unique product.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | A unique number to identify each product (Primary Key). |
+| `supplier_id`| `INTEGER` | Links this product to its supplier (Foreign Key). |
+| `name` | `VARCHAR(255)` | The name of the product. |
+| `sku` | `VARCHAR(100)` | The Stock Keeping Unit. Must be unique across all products. |
+| `price` | `DECIMAL(10, 2)` | The price of the product. |
+| `is_bundle` | `BOOLEAN` | A flag (true/false) to indicate if this product is a bundle. |
+| `created_at` | `TIMESTAMP` | The date and time when the product was added. |
+| `updated_at` | `TIMESTAMP` | The date and time when the product record was last updated. |
+
+<br>
+
+#### `Inventory` Table
+A linking table that tracks the quantity of a product in a specific warehouse.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | A unique ID for this inventory record (Primary Key). |
+| `product_id` | `INTEGER` | Links to a specific product (Foreign Key). |
+| `warehouse_id` | `INTEGER` | Links to a specific warehouse (Foreign Key). |
+| `quantity` | `INTEGER` | The current stock quantity of the product in that warehouse. |
+| `updated_at` | `TIMESTAMP` | The date and time when the quantity was last updated. |
+
+*Note: A unique constraint should be placed on the combination of (`product_id`, `warehouse_id`).*
+
+<br>
+
+#### `Product_Bundles` Table
+Defines the contents of a bundle.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `bundle_product_id` | `INTEGER` | The ID of the main bundle product (Foreign Key). |
+| `contained_product_id` | `INTEGER` | The ID of the individual product included in the bundle (Foreign Key). |
+| `quantity` | `INTEGER` | The quantity of the contained product within the bundle. |
+
+<br>
+
+#### `Inventory_Log` Table
+Tracks every change to inventory for auditing purposes.
+
+| Column Name | Data Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | A unique ID for the log entry (Primary Key). |
+| `inventory_id` | `INTEGER` | Links to the specific inventory record being changed (Foreign Key). |
+| `quantity_change` | `INTEGER` | The change in quantity (+10 for stock in, -2 for a sale). |
+| `reason` | `VARCHAR(255)` | The reason for the change (e.g., "Sale #123", "Stock Intake"). |
+| `created_at` | `TIMESTAMP` | The exact time the inventory change occurred. |
+
+---
+
+### 2. Gaps and Questions for the Product Team
+
+The requirements are intentionally incomplete. Here are questions I would ask to clarify the needs:
+
+1.  **User Roles:** Do we need a concept of "Users" and "Roles" (e.g., an Admin who can see all company data vs. a Warehouse Manager who can only see their own warehouse)?
+2.  **Supplier Details:** What specific information is needed for a supplier besides their name and contact info? (e.g., address, payment terms).
+3.  **Product Attributes:** Do products have other attributes we need to track, such as weight, dimensions, or customs information?
+4.  **Pricing:** Will prices ever change? Do we need to handle different currencies or sales tax?
+5.  **Inventory Tracking:** What specific events should trigger an `Inventory_Log` entry? Just sales and stock-ins, or also internal transfers between warehouses?
+
+---
+
+### 3. Design Decisions and Justification
+
+* **Normalization:** I used linking tables (`Inventory`, `Product_Bundles`) to create a "many-to-many" relationship. This avoids data duplication. For example, instead of storing product details in the inventory table, I only store its `product_id`. This is efficient and reduces errors.
+* **Keys and Relationships:** I used a unique `id` (Primary Key) in every table for clear identification. **Foreign Keys** (e.g., `company_id` in the `Warehouses` table) are used to enforce relationships between tables, ensuring data integrity.
+* **Data Integrity:** I've specified **unique constraints** where necessary (e.g., on `product.sku` and the combination of `product_id` and `warehouse_id` in the `Inventory` table) to prevent invalid or duplicate data.
+* **Auditing and Timestamps:** The `Inventory_Log` table provides a full audit trail of stock movements, which is critical for a system like this. The `created_at` and `updated_at` timestamps in all major tables are a best practice for debugging and data analysis.
+
+
+
+
