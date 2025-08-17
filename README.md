@@ -11,7 +11,7 @@ My submission for the backend developer case study.
 1.  **Missing Error Handling:** The code directly accesses `data['name']` and other keys without checking if they exist. If a field is missing in the request, the application will crash with a `KeyError`.
 2.  **Not a Single Database Transaction:** There are two separate `db.session.commit()` calls. If the first commit succeeds but the second one fails, the database will be left in an inconsistent state with a product record that has no corresponding inventory.
 3. No Validation of Business Rules: The code does not check if a product with the same SKU already exists before creating a new one. This violates the business rule that SKUs must be unique across the platform[cite: 36].
-4. [cite_start]No Handling of Optional Fields: The case study mentions that some fields might be optional[cite: 37], but the code treats all fields as mandatory, making the endpoint inflexible.
+4. **No Handling of Optional Fields:** The case study mentions that some fields might be optional[cite: 37], but the code treats all fields as mandatory, making the endpoint inflexible.
 
 ### Corrected Code
 
